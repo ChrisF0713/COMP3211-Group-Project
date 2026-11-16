@@ -1,22 +1,20 @@
+"""A contact with a name, an address and a mobile number."""
+
 from model.pir import PIR
 
 
 class Contact(PIR):
+    """A person the user wants to reach."""
+
+    TYPE_NAME = "Contact"
+    FIELDS = ("name", "address", "mobile_number")
+
     def __init__(self, name, address, mobile_number):
         super().__init__()
-        self.name = name
-        self.address = address
-        # Keep phone numbers as strings to preserve leading zeros and + signs.
-        self.mobile_number = mobile_number
-
-    def update_name(self, new_name):
-        self.name = new_name
-
-    def update_address(self, new_address):
-        self.address = new_address
-
-    def update_mobile_number(self, new_mobile_number):
-        self.mobile_number = new_mobile_number
+        self.name = self._validate_field("name", name)
+        self.address = self._validate_field("address", address)
+        # Keep the number as a string so leading zeros and '+' survive.
+        self.mobile_number = self._validate_field("mobile_number", mobile_number)
 
     def get_details(self):
         return (
