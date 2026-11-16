@@ -236,7 +236,10 @@ class AppController:
 
         try:
             self.repository.update(pir_id, field, value)
-        except (RecordNotFoundError, ValidationError) as exc:
+        except PIMError as exc:
+            # PIMError covers ValidationError, RecordNotFoundError and
+            # InvalidFieldError alike: every model refusal is reported, and no
+            # error class can escape this handler as a traceback.
             self.view.show_error(str(exc))
             return
 
@@ -377,7 +380,12 @@ class AppController:
                 f"Enter a keyword for {field} (or 0 to go back): "
             )
 
-            if keyword == "0" or not keyword:
+            if keyword == "0":
+                return None
+
+            if not keyword:
+                # An empty keyword is not a back-out; report it like menu 7 does.
+                self.view.show_error("the keyword to search for must not be empty")
                 return None
 
             try:

@@ -54,6 +54,11 @@ class Storage:
             raise
         except OSError as exc:
             raise ValidationError(f"could not read {path}: {exc}")
+        except UnicodeDecodeError as exc:
+            # A file that is not UTF-8 is a malformed .pim, not a crash.
+            raise ValidationError(
+                f"{path} is not a valid .pim file: it is not UTF-8 text ({exc.reason})"
+            )
         except json.JSONDecodeError as exc:
             raise ValidationError(f"{path} is not a valid .pim file: {exc}")
 

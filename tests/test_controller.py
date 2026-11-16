@@ -12,7 +12,14 @@ import unittest
 from contextlib import redirect_stdout
 
 from controller import AppController
-from model import Contact, Note, PIMRepository, Storage, Task
+from model import (
+    Contact,
+    InvalidFieldError,
+    Note,
+    PIMRepository,
+    Storage,
+    Task,
+)
 from view import ConsoleView
 
 
@@ -138,6 +145,30 @@ class TestReadUpdateDelete(ControllerTestCase):
         out = self.run_script("5\nnosuchid\n12\n")
         self.assertIn("Error", out)
 
+    def test_modify_reports_a_field_the_record_does_not_have(self):
+        # The field menu only offers record.FIELDS, so this cannot be provoked
+        # through the prompts; drive the same handler with a repository whose
+        # update() refuses the field, which is what PIR.set_field raises for a
+        # field the record does not carry. InvalidFieldError is a sibling of
+        # ValidationError under PIMError, so a handler that catches only
+        # ValidationError lets it escape as a traceback.
+        note = Note("before")
+
+        class FieldRejectingRepository(PIMRepository):
+            def update(self, pir_id, field, value):
+                raise InvalidFieldError(
+                    f"{self.get(pir_id).TYPE_NAME} has no field {field!r}"
+                )
+
+        rejecting = FieldRejectingRepository()
+        rejecting.add(note)
+        self.controller = AppController(repository=rejecting, view=self.view)
+
+        out = self.run_script(f"5\n{note.pir_id}\n1\nafter\n12\n")
+        self.assertIn("Error", out)
+        self.assertIn("has no field", out)
+        self.assertEqual(rejecting.all()[0].content, "before")
+
     def test_delete_removes_record(self):
         note = self.repository.add(Note("doomed"))
         self.run_script(f"4\n{note.pir_id}\n12\n")
@@ -199,6 +230,14 @@ class TestSearch(ControllerTestCase):
         # Backing out of the criterion builder returns without searching.
         self.run_script("9\n0\n12\n")
         self.assertEqual(len(self.repository), 3)
+
+    def test_logical_search_reports_an_empty_keyword(self):
+        # Menu 9 used to abandon silently; an empty keyword is invalid input and
+        # must be reported, the way menu 7 already does.
+        # 9 -> Single test -> Text field -> content -> empty -> back out
+        out = self.run_script("9\n1\n2\n1\n\n0\n0\n12\n")
+        self.assertIn("Error:", out)
+        self.assertIn("must not be empty", out)
 
 
 class TestPersistence(ControllerTestCase):
