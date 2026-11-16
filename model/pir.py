@@ -12,16 +12,26 @@ TIMESTAMP_FORMAT = "%Y-%m-%d %H:%M"
 def parse_timestamp(value):
     """Parse 'YYYY-MM-DD HH:MM' into a datetime.
 
-    Raises ValidationError if the value is not a non-empty string in that format.
+    Raises ValidationError if the value is not a non-empty string in exactly that
+    format. strptime alone is too lenient -- it accepts '2026-1-5 9:00' -- so the
+    text is re-rendered and compared, which pins the zero padding.
     """
     if not isinstance(value, str) or not value.strip():
         raise ValidationError("a timestamp must be a non-empty string")
+
+    text = value.strip()
     try:
-        return datetime.strptime(value.strip(), TIMESTAMP_FORMAT)
+        moment = datetime.strptime(text, TIMESTAMP_FORMAT)
     except ValueError:
         raise ValidationError(
             f"{value!r} is not a valid timestamp; expected YYYY-MM-DD HH:MM"
         )
+
+    if moment.strftime(TIMESTAMP_FORMAT) != text:
+        raise ValidationError(
+            f"{value!r} is not a valid timestamp; expected YYYY-MM-DD HH:MM"
+        )
+    return moment
 
 
 class PIR(ABC):
@@ -66,8 +76,17 @@ class PIR(ABC):
         setattr(self, field, self._validate_field(field, value))
 
     def _validate_field(self, field, value):
-        """Validate one field value and return it, possibly normalised."""
-        if isinstance(value, str) and not value.strip():
+        """Validate one field value and return it, possibly normalised.
+
+        Every field is text, so a non-string (a JSON null or a number from a
+        hand-edited file) is rejected rather than stored as-is.
+        """
+        if not isinstance(value, str):
+            raise ValidationError(
+                f"{self.TYPE_NAME}.{field} must be text, "
+                f"got {type(value).__name__}"
+            )
+        if not value.strip():
             raise ValidationError(f"{self.TYPE_NAME}.{field} must not be empty")
         if field in self.TIME_FIELDS:
             parse_timestamp(value)

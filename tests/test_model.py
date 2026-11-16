@@ -1,4 +1,4 @@
-﻿"""Unit tests for the model layer.
+"""Unit tests for the model layer.
 
 Run from the project root:
 
@@ -61,6 +61,14 @@ class TestTimestampParsing(unittest.TestCase):
             parse_timestamp("  2026-11-20 18:00  "),
             parse_timestamp("2026-11-20 18:00"),
         )
+
+    def test_rejects_unpadded_fields(self):
+        # strptime would accept these, but the documented format needs the
+        # zero padding, and the grammar in the SRS cannot derive them.
+        for bad in ("2026-1-5 9:00", "2026-11-5 18:00", "2026-1-05 18:00"):
+            with self.subTest(bad=bad):
+                with self.assertRaises(ValidationError):
+                    parse_timestamp(bad)
 
 
 class TestPIRBase(unittest.TestCase):
@@ -361,11 +369,14 @@ class TestCriteria(unittest.TestCase):
 
     def test_time_compare_skips_unparseable_stored_value(self):
         # A record whose stored time is not in our format cannot match, and
-        # must not crash the search.
-        broken = Note("placeholder")
-        broken.content = "x"
-        # Force a bad value past validation to model a hand-edited file.
+        # must not crash the search: TimeCompare.matches() reaches its
+        # `except ValidationError: return False` branch instead of raising.
+        broken = Task("placeholder", "2026-11-20 18:00")
+        # Force a bad value past validation to model a hand-edited file; set it
+        # on a record that really carries the field, or get_field() returns None
+        # and the predicate never reaches the parser at all.
         broken.__dict__["deadline"] = "whenever"
+        self.assertEqual(broken.get_field("deadline"), "whenever")
         test = TimeCompare("deadline", "before", "2030-01-01 00:00")
         self.assertFalse(test.matches(broken))
 
@@ -568,6 +579,46 @@ class TestStorage(unittest.TestCase):
             )
         with self.assertRaises(PIMError):
             self.storage.load(self.path)
+
+    def test_non_string_field_value_is_rejected(self):
+        # Every field is text, so a JSON null or number is a malformed record.
+        for payload in (
+            '[{"type": "Note", "pir_id": "aaaaaaaa", "content": null}]',
+            '[{"type": "Task", "pir_id": "bbbbbbbb", "description": 12345,'
+            ' "deadline": "2026-11-20 18:00"}]',
+        ):
+            with self.subTest(payload=payload):
+                with open(self.path, "w", encoding="utf-8") as handle:
+                    handle.write(payload)
+                with self.assertRaises(PIMError):
+                    self.storage.load(self.path)
+
+    def test_non_utf8_file_is_reported_as_pim_error(self):
+        # A file that is not UTF-8 is malformed input, not a crash: the error
+        # must be a PIMError so the controller can report it.
+        with open(self.path, "wb") as handle:
+            handle.write(b'[{"type":"Note","pir_id":"aaaaaaaa","content":"\xff\xfe"}]')
+        with self.assertRaises(PIMError):
+            self.storage.load(self.path)
+
+    def test_unreadable_path_is_reported_as_pim_error(self):
+        # The loader distinguishes "no such file" (FileNotFoundError, which the
+        # controller turns into `file not found`) from any other OS-level read
+        # failure, which must surface as a PIMError instead of a traceback.
+        # A directory named like a .pim file fails to open on every platform:
+        # PermissionError on Windows, IsADirectoryError elsewhere - both OSError.
+        unusual = "test_storage_is_a_directory"
+        from model.storage import with_extension
+
+        path = with_extension(unusual)
+        os.makedirs(path, exist_ok=True)
+        try:
+            with self.assertRaises(PIMError) as caught:
+                self.storage.load(path)
+            self.assertNotIsInstance(caught.exception, FileNotFoundError)
+            self.assertIn("could not read", str(caught.exception))
+        finally:
+            os.rmdir(path)
 
     def test_duplicate_id_in_file_is_rejected(self):
         # Two records sharing one ID would make get/modify/delete ambiguous,

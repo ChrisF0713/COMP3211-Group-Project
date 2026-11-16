@@ -1,4 +1,4 @@
-﻿# COMP3211 Group Project — Personal Information Management (PIM)
+# COMP3211 Group Project — Personal Information Management (PIM)
 
 Command-line PIM system in Python 3. Object-oriented, **MVC-separated**, standard library only.
 
@@ -36,7 +36,7 @@ enforced by the model, so a badly shaped value is rejected at entry, not discove
 python -m unittest discover -s tests -t .
 ```
 
-**123 tests, all passing.**
+**129 tests, all passing.**
 
 - `tests/test_model.py` — the deliverable suite. Record types, the US7 expression tree,
   the repository and the `.pim` format, all without touching the CLI.
@@ -63,13 +63,13 @@ stdlib-only rule — but the tracer avoids the question entirely.
 
 | Scope | Coverage |
 |---|---|
-| **Model package** (the deliverable) | **99.2%** (361/364) |
-| Controller and view, for context | 81.4% |
+| **Model package** (the deliverable) | **100.0%** (376/376) |
+| Controller and view, for context | 83.7% (278/332) |
 
-Per module the model is at or near 100%; the three uncovered lines are the two abstract
-`NotImplementedError` stubs in the criteria Component and one unreachable guard in the
-storage loader. `coverage_report.txt` explains each one, so the exclusion reads as a
-decision rather than an oversight.
+Every line of the model package is executed by the suite. The last two branches to
+be covered each have a test named after them: `TimeCompare` rejecting an
+unparseable stored value, and the loader reporting an OS-level read failure as a
+`PIMError` rather than letting it escape. `coverage_report.txt` names both.
 
 ## Structure
 
@@ -137,7 +137,8 @@ course deliverable that is run from source, flat is the right trade.
 The dependency direction is one-way: **controller → model**, **controller → view**. The
 model imports neither of the other two — that is what makes it unit-testable without
 capturing stdout, which is exactly what Deliverable 4 needs. `view/console_view.py` is the
-only module in the project that calls `print` or `input`.
+only module that renders records or reads input; `main.py` (usage and farewell) and
+`app_controller.py` (the `--debug` trace) print to stderr and never render a record.
 
 Why MVC here rather than a monolith: US7 makes the data model non-trivial (four record
 types plus an expression tree), while the presentation is deliberately plain. Separating
@@ -219,14 +220,63 @@ folder.
 
 | Deliverable | Pts | State |
 |---|---|---|
-| SRS | 6 | Not started |
-| Design document | 5 | Not started |
-| Implementation (code, dev manual, user manual, ≤4 min MP4) | 6 | Code done; manuals and video outstanding |
-| Unit tests for the model | 4 | **Done** — 124 tests, 99.2% model coverage, `coverage_report.txt` |
-| Presentation slides (PDF) + recording (MP4, ≤5 min, each member ≥1 min) | 4 | Not started |
+| SRS | 6 | `../deliverables/SRS.docx` — group and member fields still to fill |
+| Design document | 5 | `../deliverables/Design Document.docx`, with five figures |
+| Implementation (code, developer manual, user manual, ≤4 min MP4) | 6 | Code and both manuals done; **video outstanding** |
+| Unit tests for the model | 4 | **Done** — 129 tests, 100.0% model coverage, `coverage_report.txt` |
+| Presentation slides (PDF) + recording (MP4, ≤5 min, each member ≥1 min) | 4 | Slides done; **recording outstanding** |
 
-Also outstanding: the requirements coverage table (Deliverable 3.e) and the Honour
-Declaration with per-member contribution percentages.
+Also outstanding: the Honour Declaration with per-member contribution
+percentages, and the demo and presentation recordings.
+
+The requirements coverage table required by Deliverable 3.e is
+[`requirements-coverage.md`](requirements-coverage.md), and the coverage report
+required by 4.b is [`coverage_report.txt`](coverage_report.txt). Both sit here,
+in the root of the source code, because the brief names that location explicitly.
+
+## Where the documents live
+
+**This repository holds only source code** plus the two reports the brief requires
+in the source root. Everything document-shaped lives beside it, outside the repo:
+
+```text
+Group project/
+├── COMP3211-Group-Project/      <- this repository
+│   ├── model/  view/  controller/  tests/  main.py
+│   ├── coverage_report.txt      Deliverable 4.b, in the source root by rule
+│   ├── coverage_report.md
+│   ├── requirements-coverage.md Deliverable 3.e, in the source root by rule
+│   └── requirements-coverage.docx
+└── deliverables/                <- documents and figures, not in the repo
+    ├── SRS.md · SRS.docx
+    ├── Design Document.md · .docx
+    ├── Developer Manual.md · .docx
+    ├── User Manual.md · .docx
+    ├── Presentation Slides.pdf · presentation.pptx
+    ├── Honour-Declaration.md
+    ├── SUBMISSION-CHECKLIST.md
+    ├── assets/                  the five PNG figures
+    └── tools/                   the scripts that build all of the above
+```
+
+The Markdown files are the source; the `.docx` are generated from them.
+
+Regenerate after editing, from `deliverables/tools/`:
+
+```bash
+python make_figures.py        # the five PNG figures, into ../assets/
+python make_docx.py           # the four .docx, into ../
+python check_manual.py       # documented messages still match the code
+python build_coverage.py      # 3.e table, into the source root
+```
+
+`tools/paths.py` holds every absolute location those scripts need, so if the
+layout changes again there is one file to edit rather than nine.
+
+The tooling needs `python-docx` and `Pillow`. Both are documentation-time only:
+**no module in this repository imports anything outside the standard library**,
+which is what Deliverable 3.a requires. Keeping the tools outside the repo is
+what makes that claim easy to verify.
 
 ## Group
 
