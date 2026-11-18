@@ -97,5 +97,4 @@ class PIMRepository:
         return None
 
 
-# Kept so older code that used the previous class name still imports.
 PIMManager = PIMRepository

@@ -5,6 +5,7 @@ so the loader can rebuild the right class.
 """
 
 import json
+import os
 
 from model.errors import ValidationError
 from model.note import Note
@@ -20,9 +21,22 @@ RECORD_TYPES = {
 
 
 def with_extension(filename):
-    """Return filename with the .pim extension added if it is missing."""
-    if filename.endswith(FILE_EXTENSION):
+    """Return filename with the .pim extension, rejecting any other extension.
+
+    A name that already ends in .pim is kept, and a name with no extension gets
+    one added. Any other extension is an error rather than being replaced, so the
+    user is told that `notes.txt` is not a .pim file instead of being silently
+    redirected to `notes.pim`.
+    """
+    if filename.lower().endswith(FILE_EXTENSION):
         return filename
+
+    stem, extension = os.path.splitext(filename)
+    if extension and stem:
+        raise ValidationError(
+            f"{filename!r} has the extension {extension!r}; this system reads and "
+            f"writes {FILE_EXTENSION} files, so use {stem + FILE_EXTENSION!r}"
+        )
     return filename + FILE_EXTENSION
 
 

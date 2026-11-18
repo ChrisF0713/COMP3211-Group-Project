@@ -24,6 +24,7 @@ from model.errors import (
     ValidationError,
 )
 from model.event import Event
+from model.expression import parse_criterion
 from model.note import Note
 from model.pir import TIMESTAMP_FORMAT, PIR, parse_timestamp
 from model.repository import PIMManager, PIMRepository

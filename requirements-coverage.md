@@ -4,7 +4,7 @@ COMP3211 Software Engineering — Group Project
 
 Every user story, user requirement, functional requirement and non-functional requirement in the SRS, with where it is implemented and the test that demonstrates it.
 
-Test names refer to `tests/test_model.py` and `tests/test_controller.py` (129 tests, all passing). Model line coverage is 100.0% (376/376); see `coverage_report.txt`.
+Test names refer to `tests/test_model.py` and `tests/test_controller.py` (159 tests, all passing). Model line coverage is 100.0% (628/628); see `coverage_report.txt`.
 
 ## 1. User stories
 
@@ -52,13 +52,14 @@ These are the SRS statements owned by the customer; each is realised by the func
 | FR-1.1 | Implemented | `CREATE_OPTIONS` in `app_controller.py` | `test_create_note`, `test_create_task`, `test_create_event`, `test_create_contact` |
 | FR-1.2 | Implemented | `PIR._validate_field` rejects blank text | `test_note_rejects_empty_content` |
 | FR-1.3 | Implemented | `Task.TIME_FIELDS`; `parse_timestamp` | `test_task_rejects_bad_deadline` |
-| FR-1.4 | Implemented | `Event.TIME_FIELDS` | `test_event_rejects_bad_alarm` |
+| FR-1.4 | Implemented | `Event._validate_alarm_before_start`; both time fields required | `test_event_rejects_bad_alarm`, `test_event_rejects_an_alarm_after_the_start`, `test_event_rejects_an_alarm_at_the_start`, `test_event_edit_cannot_break_the_ordering` |
 | FR-1.5 | Implemented | `Contact`; mobile kept as `str` | `test_contact_keeps_leading_zero` |
 | FR-1.6 | Implemented | `PIR.__init__` (`uuid4()[:8]`) | `test_identity_is_generated_and_unique` |
 | FR-1.7 | Implemented | `parse_timestamp` round-trips through `strftime` | `test_accepts_the_documented_format`, `test_rejects_unpadded_fields` |
-| FR-1.8 | Implemented | `_ask_value` returns `None` on `0` | `test_backing_out_of_create_stores_nothing` |
+| FR-1.8 | Implemented | `_ask_value` returns `None` on `0` | `test_create_stores_nothing_when_the_user_backs_out`, `test_backing_out_of_create_stores_nothing` |
+| FR-1.9 | Implemented | `_ask_value` re-asks until the value passes `_check_value` | `test_create_reasks_after_a_bad_timestamp` |
 | FR-2.1 | Implemented | `modify_record` offers `record.FIELDS` | `test_modify_updates_a_field` |
-| FR-2.2 | Implemented | `PIR.set_field` validates before writing | `test_update_rejects_unknown_field_and_leaves_record_intact` |
+| FR-2.2 | Implemented | `PIR.set_field` validates before writing; the prompt re-asks | `test_update_rejects_unknown_field_and_leaves_record_intact`, `test_modify_reasks_after_a_bad_value` |
 | FR-2.3 | Implemented | `RecordNotFoundError` | `test_modify_unknown_id` |
 | FR-3.1 | Implemented | `TextContains.matches` (`casefold`) | `test_text_contains_is_case_insensitive` |
 | FR-3.2 | Implemented | `get_field` returns `None` for absent fields | `test_text_contains_skips_records_without_the_field` |
@@ -68,12 +69,13 @@ These are the SRS statements owned by the customer; each is realised by the func
 | FR-3.6 | Implemented | `Not` | `test_not_inverts_its_operand` |
 | FR-3.7 | Implemented | Composites accept criteria as operands | `test_nesting_is_supported`, `test_three_level_nesting` |
 | FR-3.8 | Implemented | `search` preserves order; empty message from `show_records` | `test_all_preserves_insertion_order`, `test_search_by_text_miss` |
-| FR-3.9 | Implemented | Every grammar production has a constructor; ill-formed input raises | `test_text_contains_rejects_unknown_field`, `test_time_compare_rejects_unknown_operator`, `test_logical_search_reports_an_empty_keyword` |
-| FR-4.1 | Implemented | `get_details()` per type; `show_records` | `test_note_fields`, `test_task_fields_and_details` |
-| FR-4.2 | Implemented | `show_records(..., "No records have been created yet.")` | `test_display_all_when_empty` |
+| FR-3.9 | Implemented | Every grammar production is accepted; ill-formed input raises | `test_malformed_forms_are_rejected`, `test_missing_comparator_after_time_field`, `test_search_reports_a_malformed_expression` |
+| FR-4.1 | Implemented | `PIR.get_summary()` per type; `ConsoleView.show_records` | `test_summary_is_a_single_line_for_every_type`, `test_summary_truncates_a_long_field`, `test_summary_keeps_a_short_field_intact` |
+| FR-4.2 | Implemented | `PIR.get_details()` per type; `ConsoleView.show_record` wraps a long value | `test_details_are_multiline_and_complete`, `test_details_keep_every_field` |
+| FR-4.3 | Implemented | `show_records(..., "No records have been created yet.")` | `test_display_all_when_empty` |
 | FR-5.1 | Implemented | `PIMRepository.delete` | `test_delete_removes_record` |
 | FR-5.2 | Implemented | `RecordNotFoundError` | `test_delete_unknown_id` |
-| FR-6.1 | Implemented | `with_extension` | `test_extension_is_appended`, `test_save_returns_path_used` |
+| FR-6.1 | Implemented | `with_extension` appends the extension or rejects another one | `test_extension_is_appended`, `test_other_extensions_are_rejected`, `test_extension_match_is_case_insensitive`, `test_save_returns_path_used` |
 | FR-6.2 | Implemented | `Storage.load`; `from_dict` restores `pir_id` | `test_to_dict_and_from_dict_round_trip` |
 | FR-6.3 | Implemented | Confirmation prompt in `load_records` | `test_load_with_records_asks_before_replacing`, `test_load_declined_keeps_current_records`, `test_load_with_empty_memory_does_not_confirm` |
 | FR-6.4 | Implemented | Seven validation rules in `Storage.load` | `test_wrong_top_level_shape_is_rejected`, `test_non_object_entry_is_rejected`, `test_unusable_id_in_file_is_rejected`, `test_duplicate_id_in_file_is_rejected`, `test_unknown_type_is_rejected`, `test_missing_field_is_rejected`, `test_invalid_timestamp_in_file_is_rejected` |
@@ -99,9 +101,9 @@ These are the SRS statements owned by the customer; each is realised by the func
 |---|---|---|---|---|
 | User stories | 11 | 11 | 0 | 0 |
 | User requirements | 14 | 14 | 0 | 0 |
-| Functional requirements | 32 | 32 | 0 | 0 |
+| Functional requirements | 34 | 34 | 0 | 0 |
 | Non-functional requirements | 6 | 6 | 0 | 0 |
-| **Total** | **63** | **63** | **0** | **0** |
+| **Total** | **65** | **65** | **0** | **0** |
 
 ## 6. Deliberate scope exclusions
 

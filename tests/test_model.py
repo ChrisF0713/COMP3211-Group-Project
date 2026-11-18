@@ -8,15 +8,19 @@ Run from the project root:
 import os
 import unittest
 
+from model.criteria import Criterion
+from model.storage import with_extension
 from model import (
     And,
     Contact,
     Event,
+    InvalidFieldError,
     Note,
     Not,
     Or,
     PIMError,
     PIMRepository,
+    PIR,
     RecordNotFoundError,
     Storage,
     Task,
@@ -75,8 +79,6 @@ class TestPIRBase(unittest.TestCase):
 
     def test_abstract_base_cannot_be_instantiated(self):
         # PIR declares get_details abstract, so it must refuse construction.
-        from model import PIR
-
         with self.assertRaises(TypeError):
             PIR()
 
@@ -105,8 +107,6 @@ class TestPIRBase(unittest.TestCase):
 
     def test_set_field_rejects_absent_field(self):
         # Writing a field the type does not have is an error.
-        from model import InvalidFieldError
-
         with self.assertRaises(InvalidFieldError):
             Note("x").set_field("deadline", "2026-11-20 18:00")
 
@@ -188,6 +188,40 @@ class TestRecordTypes(unittest.TestCase):
         with self.assertRaises(ValidationError):
             Event("meeting", "2026-11-20 14:00", "soon")
 
+    def test_event_accepts_an_alarm_before_the_start(self):
+        # The normal case: a reminder a little earlier than the event.
+        event = Event("meeting", "2026-11-20 14:00", "2026-11-20 13:30")
+        self.assertEqual(event.alarm, "2026-11-20 13:30")
+
+    def test_event_rejects_an_alarm_after_the_start(self):
+        # An alarm exists to warn before the event, so a later one is useless.
+        with self.assertRaises(ValidationError) as caught:
+            Event("meeting", "2026-11-20 14:00", "2026-11-20 15:00")
+        self.assertIn("earlier than starting_time", str(caught.exception))
+
+    def test_event_rejects_an_alarm_at_the_start(self):
+        # The same instant gives no warning at all.
+        with self.assertRaises(ValidationError):
+            Event("meeting", "2026-11-20 14:00", "2026-11-20 14:00")
+
+    def test_event_edit_cannot_break_the_ordering(self):
+        # Moving the start past the alarm, or the alarm past the start, is
+        # rejected and the record keeps its previous values.
+        event = Event("meeting", "2026-11-20 14:00", "2026-11-20 13:30")
+
+        with self.assertRaises(ValidationError):
+            event.set_field("starting_time", "2026-11-20 13:00")
+        self.assertEqual(event.starting_time, "2026-11-20 14:00")
+
+        with self.assertRaises(ValidationError):
+            event.set_field("alarm", "2026-11-20 14:30")
+        self.assertEqual(event.alarm, "2026-11-20 13:30")
+
+    def test_event_edit_that_stays_ordered_is_accepted(self):
+        event = Event("meeting", "2026-11-20 14:00", "2026-11-20 13:30")
+        event.set_field("alarm", "2026-11-20 13:00")
+        self.assertEqual(event.alarm, "2026-11-20 13:00")
+
     def test_contact_fields_and_details(self):
         contact = Contact("Alice", "Paris", "0123456789")
         self.assertEqual(contact.name, "Alice")
@@ -204,6 +238,122 @@ class TestRecordTypes(unittest.TestCase):
     def test_contact_rejects_empty_name(self):
         with self.assertRaises(ValidationError):
             Contact("  ", "Paris", "0123456789")
+
+    def test_contact_accepts_realistic_mobile_numbers(self):
+        # Digits, spaces, hyphens and an optional leading '+' are all accepted.
+        for value in (
+            "0123456789",
+            "12345678",
+            "+852 1234 5678",
+            "+852-1234-5678",
+            "5123 4567",
+            "1",
+        ):
+            with self.subTest(value=value):
+                self.assertEqual(Contact("A", "B", value).mobile_number, value)
+
+    def test_contact_rejects_a_number_with_letters(self):
+        # A phone number is digits and separators, not arbitrary text.
+        for value in (
+            "51114kkk",
+            "abc",
+            "51114 kkk",
+            "12+34",
+            "--",
+            "+",
+            "123-",
+            "-123",
+            "+ 852",
+        ):
+            with self.subTest(value=value):
+                with self.assertRaises(ValidationError):
+                    Contact("A", "B", value)
+
+    def test_contact_mobile_rule_is_reported_by_name(self):
+        # The message names the field, so the user knows what to fix.
+        with self.assertRaises(ValidationError) as caught:
+            Contact("A", "B", "51114kkk")
+        self.assertIn("mobile_number", str(caught.exception))
+
+
+class TestDisplayTiers(unittest.TestCase):
+    """The two presentation tiers: a listing summary and a full detail view.
+
+    US8 asks for detailed information about a specific PIR *or* all PIRs, so the
+    two views differ: the listing must stay one line per record however long a
+    field is, and the detail view must carry everything.
+    """
+
+    def setUp(self):
+        self.long_text = "Tutorial notes for week 5. " * 40
+
+    def test_summary_is_a_single_line_for_every_type(self):
+        # Whatever the field contents, a summary never contains a newline.
+        records = [
+            Note(self.long_text),
+            Task(self.long_text, "2026-11-20 18:00"),
+            Event(self.long_text, "2026-11-20 14:00", "2026-11-20 13:30"),
+            Contact(self.long_text, self.long_text, "0123456789"),
+        ]
+        for record in records:
+            with self.subTest(type=record.TYPE_NAME):
+                summary = record.get_summary()
+                self.assertNotIn("\n", summary)
+                self.assertIn(record.pir_id, summary)
+                self.assertIn(record.TYPE_NAME, summary)
+
+    def test_summary_shows_every_time_field(self):
+        # A summary must not hide a stored time: an Event has two, and showing
+        # only the starting time would misrepresent the record.
+        task = Task("submit", "2026-11-20 18:00")
+        self.assertIn("2026-11-20 18:00", task.get_summary())
+
+        event = Event("meeting", "2026-11-20 14:00", "2026-11-20 13:30")
+        summary = event.get_summary()
+        self.assertIn("2026-11-20 14:00", summary)
+        self.assertIn("2026-11-20 13:30", summary)
+
+    def test_summary_truncates_a_long_field(self):
+        # A 1000-character note must not become a 1000-character line.
+        note = Note(self.long_text)
+        summary = note.get_summary()
+        self.assertLess(len(summary), 120)
+        self.assertIn("\u2026", summary)
+
+    def test_summary_keeps_a_short_field_intact(self):
+        # No ellipsis when there is nothing to elide.
+        note = Note("Buy milk")
+        self.assertIn("Buy milk", note.get_summary())
+        self.assertNotIn("\u2026", note.get_summary())
+
+    def test_details_are_multiline_and_complete(self):
+        # The detail view carries the whole field, one field per line.
+        note = Note(self.long_text)
+        details = note.get_details()
+        self.assertIn(self.long_text.strip(), details)
+        self.assertGreater(len(details.splitlines()), 1)
+
+    def test_details_keep_every_field(self):
+        # Nothing may be dropped from the detailed view.
+        task = Task("submit", "2026-11-20 18:00")
+        details = task.get_details()
+        for fragment in ("Task", task.pir_id, "submit", "2026-11-20 18:00"):
+            self.assertIn(fragment, details)
+
+        event = Event("meet", "2026-11-20 14:00", "2026-11-20 13:30")
+        for fragment in ("Event", "meet", "2026-11-20 14:00", "2026-11-20 13:30"):
+            self.assertIn(fragment, event.get_details())
+
+        contact = Contact("Alice", "Paris", "0123456789")
+        for fragment in ("Contact", "Alice", "Paris", "0123456789"):
+            self.assertIn(fragment, contact.get_details())
+
+    def test_summarize_collapses_whitespace(self):
+        # A field holding newlines and runs of spaces still yields one line.
+        note = Note("line one\nline two    line three")
+        summary = note.get_summary()
+        self.assertNotIn("\n", summary)
+        self.assertIn("line one line two line three", summary)
 
 
 class TestCriteria(unittest.TestCase):
@@ -360,8 +510,6 @@ class TestCriteria(unittest.TestCase):
 
     def test_base_criterion_methods_are_abstract(self):
         # The Component base declares both operations; a subclass must supply them.
-        from model.criteria import Criterion
-
         with self.assertRaises(NotImplementedError):
             Criterion().matches(Note("x"))
         with self.assertRaises(NotImplementedError):
@@ -491,10 +639,21 @@ class TestStorage(unittest.TestCase):
 
     def test_extension_is_appended(self):
         # A name without the extension gets one added.
-        from model.storage import with_extension
-
         self.assertEqual(with_extension("records"), "records" + FILE_EXTENSION)
         self.assertEqual(with_extension("records.pim"), "records.pim")
+
+    def test_other_extensions_are_rejected(self):
+        # `notes.txt` is not a .pim file, so it is refused rather than silently
+        # redirected to `notes.pim` - the user must see what went wrong.
+        for name in ("notes.txt", "records.md", "a.b.json"):
+            with self.subTest(name=name):
+                with self.assertRaises(ValidationError) as caught:
+                    with_extension(name)
+                self.assertIn(".pim", str(caught.exception))
+
+    def test_extension_match_is_case_insensitive(self):
+        # An upper-case .PIM is already a .pim file.
+        self.assertEqual(with_extension("RECORDS.PIM"), "RECORDS.PIM")
 
     def test_save_returns_path_used(self):
         path = self.storage.save([Note("x")], "test_storage")
@@ -608,7 +767,6 @@ class TestStorage(unittest.TestCase):
         # A directory named like a .pim file fails to open on every platform:
         # PermissionError on Windows, IsADirectoryError elsewhere - both OSError.
         unusual = "test_storage_is_a_directory"
-        from model.storage import with_extension
 
         path = with_extension(unusual)
         os.makedirs(path, exist_ok=True)

@@ -120,4 +120,18 @@ class PIR(ABC):
 
     @abstractmethod
     def get_details(self):
-        """Return a one-line description of this record."""
+        """Return every field of this record, one per line."""
+
+    #: Characters of a free-text field kept in a summary.
+    SUMMARY_TEXT_LIMIT = 40
+
+    def summarize(self, value):
+        """Return value collapsed to one line, shortened past SUMMARY_TEXT_LIMIT."""
+        text = " ".join(str(value).split())
+        if len(text) <= self.SUMMARY_TEXT_LIMIT:
+            return text
+        return text[: self.SUMMARY_TEXT_LIMIT].rstrip() + "\u2026"
+
+    @abstractmethod
+    def get_summary(self):
+        """Return a one-line preview of this record for a listing."""
