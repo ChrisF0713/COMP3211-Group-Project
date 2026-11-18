@@ -4,7 +4,7 @@ COMP3211 Software Engineering — Group Project
 
 Every user story, user requirement, functional requirement and non-functional requirement in the SRS, with where it is implemented and the test that demonstrates it.
 
-Test names refer to `tests/test_model.py` and `tests/test_controller.py` (159 tests, all passing). Model line coverage is 100.0% (628/628); see `coverage_report.txt`.
+Test names refer to `tests/test_model.py` and `tests/test_controller.py` (162 tests, all passing). Model line coverage is 100.0% (654/654); see `coverage_report.txt`.
 
 ## 1. User stories
 

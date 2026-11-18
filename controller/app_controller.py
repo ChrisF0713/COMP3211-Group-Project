@@ -324,10 +324,13 @@ class AppController:
         "                type = Task && description contains report\n"
         "                !(type = Contact) || name contains \"Ali\"\n"
         "\n"
-        "  Only the test's own record types are searched:\n"
-        "    content -> Note        deadline -> Task\n"
-        "    name / address / mobile_number -> Contact\n"
-        "    description / starting_time / alarm -> Task, Event\n"
+        "  Only records that carry the field can match:\n"
+        "    content                             -> Note\n"
+        "    description                         -> Task, Event\n"
+        "    deadline                            -> Task\n"
+        "    starting_time                       -> Event\n"
+        "    alarm                               -> Event\n"
+        "    name / address / mobile_number      -> Contact\n"
     )
 
     def search_records(self):

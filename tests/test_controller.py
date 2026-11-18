@@ -7,6 +7,7 @@ Run from the project root:
 
 import io
 import os
+import re
 import sys
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
@@ -14,6 +15,7 @@ from contextlib import redirect_stderr, redirect_stdout
 from controller import AppController
 from model import (
     Contact,
+    Event,
     InvalidFieldError,
     Note,
     PIMRepository,
@@ -264,6 +266,58 @@ class TestSearch(ControllerTestCase):
     def test_search_by_time_rejects_bad_timestamp(self):
         out = self.run_script("6\ndeadline < not-a-date\n0\n9\n")
         self.assertIn("Error", out)
+
+    def test_help_lists_the_real_owner_of_each_field(self):
+        # The screen claims which record types carry which field. That claim was
+        # once wrong - starting_time and alarm were listed as Task fields too -
+        # so it is checked against the classes themselves.
+        out = self.run_script("6\n0\n9\n")
+        owners = {
+            field: [
+                cls.TYPE_NAME
+                for cls in (Note, Task, Event, Contact)
+                if field in cls.FIELDS
+            ]
+            for field in ("content", "description", "deadline",
+                          "starting_time", "alarm")
+        }
+
+        for field, types in owners.items():
+            with self.subTest(field=field):
+                # The help must not attach a field to a type that lacks it.
+                for other in ("Note", "Task", "Event", "Contact"):
+                    if other in types:
+                        continue
+                    # A wrong pairing shows up as the field and the foreign type
+                    # on the same help line.
+                    pattern = rf"{field}[^\n]*{other}|{other}[^\n]*{field}"
+                    self.assertIsNone(
+                        re.search(pattern, out),
+                        f"help pairs {field} with {other}, but {other} has no {field}",
+                    )
+
+    def test_starting_time_never_matches_a_task(self):
+        # An event carries starting_time and a task does not, so a test on that
+        # field must never return the task. This is the mix-up users reported.
+        task = self.repository.add(Task("submit report", "2026-11-20 18:00"))
+        event = self.repository.add(
+            Event("team meeting", "2026-11-20 14:00", "2026-11-20 13:30")
+        )
+
+        out = self.run_script("6\nstarting_time = 2026-11-20 14:00\n0\n9\n")
+        self.assertIn(event.pir_id, out)
+        self.assertNotIn(task.pir_id, out)
+
+    def test_deadline_never_matches_an_event(self):
+        # The mirror image: deadline belongs to a task only.
+        task = self.repository.add(Task("submit report", "2026-11-20 18:00"))
+        event = self.repository.add(
+            Event("team meeting", "2026-11-20 14:00", "2026-11-20 13:30")
+        )
+
+        out = self.run_script("6\ndeadline = 2026-11-20 18:00\n0\n9\n")
+        self.assertIn(task.pir_id, out)
+        self.assertNotIn(event.pir_id, out)
 
     def test_logical_search_and(self):
         # Two tests joined by &&.

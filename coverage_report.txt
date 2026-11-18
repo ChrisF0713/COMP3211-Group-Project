@@ -18,7 +18,7 @@ never ran with a leading '>>>>>>'. `coverage_report.py` reads those
 markers for the project's own packages and prints the tables below.
 Both scripts ship in the source root so the result is reproducible.
 
-Test suite: 188 tests, all passing.
+Test suite: 193 tests, all passing.
 
 ========================================================================
 2. Line coverage — the model package
@@ -29,15 +29,15 @@ Module                      Executed   Total   Coverage
 model.contact                     31      31     100.0%
 model.criteria                   112     112     100.0%
 model.errors                       9       9     100.0%
-model.event                       40      40     100.0%
-model.expression                 209     209     100.0%
+model.event                       41      41     100.0%
+model.expression                 216     216     100.0%
 model.note                        13      13     100.0%
 model.pir                         84      84     100.0%
 model.repository                  57      57     100.0%
 model.storage                     71      71     100.0%
 model.task                        20      20     100.0%
 -------------------------------------------------------
-TOTAL                            646     646     100.0%
+TOTAL                            654     654     100.0%
 
 ========================================================================
 3. The uncovered lines
