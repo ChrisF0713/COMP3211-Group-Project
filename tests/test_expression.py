@@ -157,6 +157,32 @@ class TestExpressionErrors(unittest.TestCase):
                 with self.assertRaises(ValidationError):
                     parse_criterion(text)
 
+    def test_misspelled_field_names_are_reported_as_such(self):
+        # A typo used to read as a bare-word search, so the operator after it was
+        # reported as "trailing input" - a message that names nothing useful.
+        for text, word in (
+            ("alram < 2030-10-29 11:11", "alram"),
+            ("dealines < 2030-10-29 11:11", "dealines"),
+            ("starting_tim > 2030-10-29 11:11", "starting_tim"),
+            ("descriptoin contains x", "descriptoin"),
+            ("nmae contains Ali", "nmae"),
+        ):
+            with self.subTest(text=text):
+                with self.assertRaises(ValidationError) as caught:
+                    parse_criterion(text)
+                message = str(caught.exception)
+                self.assertIn(word, message)
+                self.assertIn("not a field name", message)
+                # The message lists what is accepted, so the typo can be fixed.
+                self.assertIn("deadline", message)
+                self.assertIn("starting_time", message)
+
+    def test_a_bare_word_followed_by_nothing_still_searches(self):
+        # The shorthand must not be broken by the field-name check above.
+        for text in ("milk", "bread", '"buy milk"', "milk || bread"):
+            with self.subTest(text=text):
+                parse_criterion(text)
+
     def test_time_field_rejects_contains(self):
         # `contains` belongs to text fields only.
         with self.assertRaises(ValidationError):

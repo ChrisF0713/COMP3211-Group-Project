@@ -235,7 +235,19 @@ class _Parser:
             value = self.take_quoted_or_word()
             return self.any_text(value, field=word)
 
-        # A bare word: shorthand for "any text field contains it".
+        # A bare word: shorthand for "any text field contains it". A comparator
+        # or `contains` after it means the word was meant to be a field name, so
+        # name the real fields instead of reporting trailing junk.
+        following = self.peek(1)
+        if following is not None and (
+            (following.kind == _SYMBOL and following.text in _COMPARISONS)
+            or (following.kind == _WORD and following.text.lower() == "contains")
+        ):
+            self.fail(
+                f"{word!r} is not a field name; expected one of: "
+                f"{', '.join(TEXT_FIELDS + TIME_FIELDS)}"
+            )
+
         self.position += 1
         return self.any_text(word)
 
