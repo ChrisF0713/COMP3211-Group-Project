@@ -18,7 +18,7 @@ never ran with a leading '>>>>>>'. `coverage_report.py` reads those
 markers for the project's own packages and prints the tables below.
 Both scripts ship in the source root so the result is reproducible.
 
-Test suite: 129 tests, all passing.
+Test suite: 188 tests, all passing.
 
 ========================================================================
 2. Line coverage — the model package
@@ -26,17 +26,18 @@ Test suite: 129 tests, all passing.
 
 Module                      Executed   Total   Coverage
 -------------------------------------------------------
-model.contact                     15      15     100.0%
+model.contact                     31      31     100.0%
 model.criteria                   112     112     100.0%
 model.errors                       9       9     100.0%
-model.event                       16      16     100.0%
-model.note                        11      11     100.0%
-model.pir                         76      76     100.0%
+model.event                       40      40     100.0%
+model.expression                 209     209     100.0%
+model.note                        13      13     100.0%
+model.pir                         84      84     100.0%
 model.repository                  57      57     100.0%
-model.storage                     65      65     100.0%
-model.task                        15      15     100.0%
+model.storage                     71      71     100.0%
+model.task                        20      20     100.0%
 -------------------------------------------------------
-TOTAL                            376     376     100.0%
+TOTAL                            646     646     100.0%
 
 ========================================================================
 3. The uncovered lines
@@ -75,10 +76,10 @@ application through scripted stdin.
 
 Module                      Executed   Total   Coverage
 -------------------------------------------------------
-controller.app_controller        244     293      83.3%
-view.console_view                 34      39      87.2%
+controller.app_controller        231     244      94.7%
+view.console_view                 39      57      68.4%
 -------------------------------------------------------
-TOTAL                            278     332      83.7%
+TOTAL                            270     301      89.7%
 
 The uncovered remainder is menu text for paths the tests do not
 trigger, such as printing the 'current record' header before a field

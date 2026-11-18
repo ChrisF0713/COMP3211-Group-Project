@@ -15,8 +15,15 @@ class Task(PIR):
         self.description = self._validate_field("description", description)
         self.deadline = self._validate_field("deadline", deadline)
 
+    def get_summary(self):
+        return (
+            f"{self.TYPE_NAME} | ID: {self.pir_id} "
+            f"| {self.summarize(self.description)} | due {self.deadline}"
+        )
+
     def get_details(self):
         return (
-            f"Task | ID: {self.pir_id} | Description: {self.description} "
-            f"| Deadline: {self.deadline}"
+            f"Task | ID: {self.pir_id}\n"
+            f"  Description: {self.description}\n"
+            f"  Deadline:    {self.deadline}"
         )

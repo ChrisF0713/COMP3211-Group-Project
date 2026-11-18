@@ -24,7 +24,7 @@ Extra features earn no credit. Do not add them.
 python main.py [--debug]
 ```
 
-Menu-driven, 12 options. `0` returns to the previous menu at any prompt.
+Menu-driven, 9 options. `0` returns to the previous menu at any prompt.
 `--debug` traces every dispatched action to stderr (`[debug] action=… records=…`);
 stdout stays untouched, so a debug session is diffable against a normal one.
 Timestamps use `YYYY-MM-DD HH:MM` (e.g. `2026-11-20 18:00`); that single format is
@@ -210,8 +210,8 @@ All 11 user stories are implemented:
 | US7 | Search with contains / `<` `>` `=` / `&&` `\|\|` `!` | `model/criteria.py`, menus 6–9 |
 | US8 | Print one PIR or all PIRs | `AppController.display_all`, `display_one` |
 | US9 | Delete a PIR | `PIMRepository.delete` |
-| US10 | Save to `.pim` | `model/storage.py`, menu 10 |
-| US11 | Load from `.pim` | `model/storage.py`, menu 11 |
+| US10 | Save to `.pim` | `model/storage.py`, menu 7 |
+| US11 | Load from `.pim` | `model/storage.py`, menu 8 |
 
 The formal coverage report required by Deliverable 3.e still has to be written into this
 folder.

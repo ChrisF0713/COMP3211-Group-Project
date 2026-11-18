@@ -21,17 +21,44 @@ class ConsoleView:
         if back_label is not None:
             print(f"0. {back_label}")
 
+    #: Column at which a long field wraps.
+    WRAP_WIDTH = 96
+
     def show_records(self, records, empty_message="No matching records found."):
-        """Print each record on its own line, or a message if there are none."""
+        """Print one line per record, or a message when there are none."""
         if not records:
             print(empty_message)
             return
         for record in records:
-            print(record.get_details())
+            print(record.get_summary())
 
     def show_record(self, record):
-        """Print a single record."""
-        print(record.get_details())
+        """Print one record with every field, wrapping long values."""
+        for line in record.get_details().splitlines():
+            print(self._wrap(line))
+
+    def _wrap(self, line):
+        """Wrap line at WRAP_WIDTH, hanging continuation lines under the value."""
+        if len(line) <= self.WRAP_WIDTH:
+            return line
+
+        stripped = line.lstrip()
+        indent = " " * (len(line) - len(stripped) + 2)
+        lines = []
+        current = ""
+
+        for word in stripped.split():
+            candidate = f"{current} {word}" if current else word
+            if len(candidate) > self.WRAP_WIDTH and current:
+                lines.append(current)
+                current = indent + word
+            else:
+                current = candidate
+
+        if current:
+            lines.append(current)
+
+        return "\n".join(lines)
 
     def show_error(self, message):
         """Print an error message."""

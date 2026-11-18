@@ -3,21 +3,16 @@
 import sys
 
 from model import (
-    COMPARISONS,
     RECORD_CLASSES,
-    TEXT_FIELDS,
     TIME_FIELDS,
-    And,
-    Not,
-    Or,
+    Contact,
     PIMError,
     PIMRepository,
     RecordNotFoundError,
-    TextContains,
-    TimeCompare,
-    TypeIs,
     ValidationError,
 )
+from model.expression import parse_criterion
+from model.pir import parse_timestamp
 from model.storage import with_extension
 
 CREATE_OPTIONS = ("Note", "Task", "Event", "Contact")
@@ -43,25 +38,22 @@ FIELD_PROMPTS = {
 class AppController:
     """Handles the menus and passes user actions to the model."""
 
+    #: Main menu labels, in display order.
     MAIN_MENU = (
         "Create a record",
         "Display all records",
         "Display one record",
-        "Delete a record",
         "Modify a record",
-        "Search by type",
-        "Search by text",
-        "Search by time",
-        "Search with AND / OR / NOT",
+        "Delete a record",
+        "Search records",
         "Save records",
         "Load records",
         "Exit",
     )
 
     MAIN_ACTIONS = (
-        "create", "display_all", "display_one", "delete", "modify",
-        "search_type", "search_text", "search_time", "search_logical",
-        "save", "load", "exit",
+        "create", "display_all", "display_one", "modify", "delete",
+        "search", "save", "load", "exit",
     )
 
     def __init__(self, repository=None, view=None, debug=False):
@@ -111,12 +103,9 @@ class AppController:
             "create": self.create_record,
             "display_all": self.display_all,
             "display_one": self.display_one,
-            "delete": self.delete_record,
             "modify": self.modify_record,
-            "search_type": self.search_by_type,
-            "search_text": self.search_by_text,
-            "search_time": self.search_by_time,
-            "search_logical": self.search_logical,
+            "delete": self.delete_record,
+            "search": self.search_records,
             "save": self.save_records,
             "load": self.load_records,
         }
@@ -136,30 +125,54 @@ class AppController:
             )
 
     def create_record(self):
-        """Ask for a record type and its fields, then store the new record."""
+        """Ask for a record type and its fields, then store the new record.
+
+        A rule that spans two fields - an alarm must fall before its start - can
+        only be checked once both are known. When the build is rejected, the last
+        field is asked again rather than the whole record being discarded.
+        """
         type_name = self._pick("Choose a record type:", CREATE_OPTIONS)
 
         if type_name is None:
             return
 
+        record_class = self._record_class(type_name)
+        prompts = FIELD_PROMPTS[type_name]
         values = []
+        index = 0
 
-        for field, label in FIELD_PROMPTS[type_name]:
+        while index < len(prompts):
+            field, label = prompts[index]
             value = self._ask_value(f"Enter {label}", field)
+
             if value is None:
                 return
-            values.append(value)
 
-        record_class = self._record_class(type_name)
+            if index < len(values):
+                values[index] = value
+            else:
+                values.append(value)
 
-        try:
-            record = record_class(*values)
-            self.repository.add(record)
-        except ValidationError as exc:
-            self.view.show_error(str(exc))
-            return
+            # The last field completes the record, so try the real build there.
+            if index == len(prompts) - 1:
+                try:
+                    record = record_class(*values)
+                except ValidationError as exc:
+                    self.view.show_error(str(exc))
+                    values.pop()
+                    continue
 
-        self.view.show_success(f"Record created. Its ID is {record.pir_id}")
+                try:
+                    self.repository.add(record)
+                except ValidationError as exc:
+                    self.view.show_error(str(exc))
+                    values.pop()
+                    continue
+
+                self.view.show_success(f"Record created. Its ID is {record.pir_id}")
+                return
+
+            index += 1
 
     @staticmethod
     def _record_class(type_name):
@@ -170,22 +183,51 @@ class AppController:
         raise ValidationError(f"unknown record type {type_name!r}")
 
     def _ask_value(self, prompt, field):
-        """Ask for one field value. Returns None if the user backs out."""
+        """Ask for one field value, re-asking until it is accepted.
+
+        Returns None only when the user backs out with 0. A rejected value is
+        reported and the same field is asked again, so one bad date does not
+        throw away the fields already entered.
+        """
         if field in TIME_FIELDS:
             hint = " (YYYY-MM-DD HH:MM, or 0 to go back)"
         else:
             hint = " (or 0 to go back)"
 
-        value = self.view.ask(f"{prompt}{hint}: ")
+        while True:
+            value = self.view.ask(f"{prompt}{hint}: ")
 
-        if value == "0":
-            return None
+            if value == "0":
+                return None
 
+            error = self._check_value(field, value)
+            if error is None:
+                return value
+
+            self.view.show_error(error)
+
+    def _check_value(self, field, value):
+        """Return an error message for a bad value, or None when it is fine.
+
+        The rule itself lives in the model, so a field is checked by asking the
+        record type that owns it rather than restating the rule here.
+        """
         if not value:
-            self.view.show_error("the value cannot be empty")
-            return None
+            return "the value cannot be empty"
 
-        return value
+        if field in TIME_FIELDS:
+            try:
+                parse_timestamp(value)
+            except ValidationError as exc:
+                return str(exc)
+
+        if field == "mobile_number":
+            try:
+                Contact("placeholder", "placeholder", value)
+            except ValidationError as exc:
+                return str(exc)
+
+        return None
 
     def display_all(self):
         """Print every record."""
@@ -224,26 +266,28 @@ class AppController:
         self.view.show("Current record:")
         self.view.show_record(record)
 
-        field = self._pick("Choose a field to modify:", record.FIELDS)
+        while True:
+            field = self._pick("Choose a field to modify:", record.FIELDS)
 
-        if field is None:
+            if field is None:
+                return
+
+            value = self._ask_value(f"Enter the new {field}", field)
+
+            if value is None:
+                continue  # back to the field list, keeping the record chosen
+
+            try:
+                self.repository.update(pir_id, field, value)
+            except PIMError as exc:
+                # The value was accepted by the prompt but the model refused it;
+                # report and return to the field list rather than retrying the
+                # same field for ever.
+                self.view.show_error(str(exc))
+                return
+
+            self.view.show_success("Record updated successfully.")
             return
-
-        value = self._ask_value(f"Enter the new {field}", field)
-
-        if value is None:
-            return
-
-        try:
-            self.repository.update(pir_id, field, value)
-        except PIMError as exc:
-            # PIMError covers ValidationError, RecordNotFoundError and
-            # InvalidFieldError alike: every model refusal is reported, and no
-            # error class can escape this handler as a traceback.
-            self.view.show_error(str(exc))
-            return
-
-        self.view.show_success("Record updated successfully.")
 
     def delete_record(self):
         """Delete one record, chosen by ID."""
@@ -260,217 +304,126 @@ class AppController:
 
         self.view.show_success("Record deleted.")
 
-    def search_by_type(self):
-        """Search for records of a given type."""
-        type_name = self._pick("Choose a record type:", CREATE_OPTIONS)
+    #: Field names the search grammar accepts, grouped for the on-screen help.
+    SEARCH_HELP = (
+        "Search expression. Type a condition, or combine several.\n"
+        "\n"
+        "  TEXT fields   content, description, name, address, mobile_number\n"
+        "                content contains milk\n"
+        "                name contains \"Ali\"         (quotes allow spaces)\n"
+        "                milk                        (bare word: any text field)\n"
+        "\n"
+        "  TIME fields   deadline, starting_time, alarm\n"
+        "                deadline < 2026-11-20 18:00\n"
+        "                starting_time > 2026-11-20 13:00\n"
+        "                alarm = 2026-11-20 13:30\n"
+        "\n"
+        "  TYPE          type = Note | Task | Event | Contact\n"
+        "\n"
+        "  COMBINE       && and     || or     ! not     ( ) grouping\n"
+        "                type = Task && description contains report\n"
+        "                !(type = Contact) || name contains \"Ali\"\n"
+        "\n"
+        "  Only the test's own record types are searched:\n"
+        "    content -> Note        deadline -> Task\n"
+        "    name / address / mobile_number -> Contact\n"
+        "    description / starting_time / alarm -> Task, Event\n"
+    )
 
-        if type_name is None:
-            return
+    def search_records(self):
+        """Read search expressions until the user goes back with 0.
 
-        self.view.show_records(self.repository.search(TypeIs(type_name)))
+        Each search is independent, so a typo or an empty result does not cost a
+        trip back through the main menu.
+        """
+        self.view.show(self.SEARCH_HELP)
 
-    def search_by_text(self):
-        """Search a text field for a piece of text."""
-        field = self._pick("Choose a text field:", TEXT_FIELDS)
+        while True:
+            expression = self.view.ask("\nSearch (or 0 to go back): ")
 
-        if field is None:
-            return
-
-        keyword = self.view.ask(
-            f"Enter a keyword for {field} (or 0 to go back): "
-        )
-
-        if keyword == "0":
-            return
-
-        try:
-            self.view.show_records(self.repository.search(TextContains(field, keyword)))
-        except ValidationError as exc:
-            self.view.show_error(str(exc))
-
-    def search_by_time(self):
-        """Search a time field with a before, after or equal comparison."""
-        field = self._pick("Choose a time field:", TIME_FIELDS)
-
-        if field is None:
-            return
-
-        operator = self._pick("Choose a comparison:", COMPARISONS)
-
-        if operator is None:
-            return
-
-        target = self.view.ask(
-            "Enter a timestamp (YYYY-MM-DD HH:MM, or 0 to go back): "
-        )
-
-        if target == "0":
-            return
-
-        try:
-            criterion = TimeCompare(field, operator, target)
-            self.view.show_records(self.repository.search(criterion))
-        except ValidationError as exc:
-            self.view.show_error(str(exc))
-
-    def search_logical(self):
-        """Build a criterion from several conditions and search with it."""
-        criterion = self._build_criterion()
-
-        if criterion is None:
-            return
-
-        self.view.show("Criterion:")
-        self.view.show(criterion.describe())
-        self.view.show_records(self.repository.search(criterion))
-
-    def _build_criterion(self):
-        """Ask for a criterion and return it. Returns None if the user backs out."""
-        options = ("Single test", "AND (&&)", "OR (||)", "NOT (!)")
-        choice = self._pick("Build a search criterion:", options)
-
-        if choice is None:
-            return None
-
-        if choice.startswith("NOT"):
-            operand = self._build_criterion()
-            if operand is None:
-                return None
-            return Not(operand)
-
-        if choice.startswith("AND") or choice.startswith("OR"):
-            combine = And if choice.startswith("AND") else Or
-
-            self.view.show("First operand:")
-            first = self._build_criterion()
-            if first is None:
-                return None
-
-            self.view.show("Second operand:")
-            second = self._build_criterion()
-            if second is None:
-                return None
-
-            return combine(first, second)
-
-        return self._build_leaf()
-
-    def _build_leaf(self):
-        """Ask for one simple test and return it."""
-        kind = self._pick(
-            "Choose the kind of test:",
-            ("Record type", "Text field", "Time field"),
-        )
-
-        if kind is None:
-            return None
-
-        if kind == "Record type":
-            type_name = self._pick("Choose a record type:", CREATE_OPTIONS)
-            if type_name is None:
-                return None
-            return TypeIs(type_name)
-
-        if kind == "Text field":
-            field = self._pick("Choose a text field:", TEXT_FIELDS)
-            if field is None:
-                return None
-
-            keyword = self.view.ask(
-                f"Enter a keyword for {field} (or 0 to go back): "
-            )
-
-            if keyword == "0":
-                return None
-
-            if not keyword:
-                # An empty keyword is not a back-out; report it like menu 7 does.
-                self.view.show_error("the keyword to search for must not be empty")
-                return None
-
-            try:
-                return TextContains(field, keyword)
-            except ValidationError as exc:
-                self.view.show_error(str(exc))
-                return None
-
-        field = self._pick("Choose a time field:", TIME_FIELDS)
-        if field is None:
-            return None
-
-        operator = self._pick("Choose a comparison:", COMPARISONS)
-        if operator is None:
-            return None
-
-        target = self.view.ask(
-            "Enter a timestamp (YYYY-MM-DD HH:MM, or 0 to go back): "
-        )
-
-        if target == "0":
-            return None
-
-        try:
-            return TimeCompare(field, operator, target)
-        except ValidationError as exc:
-            self.view.show_error(str(exc))
-            return None
-
-    def save_records(self):
-        """Save every record to a .pim file."""
-        filename = self.view.ask(
-            "Enter filename to save (e.g. records.pim, or 0 to go back): "
-        )
-
-        if filename == "0":
-            return
-
-        if not filename:
-            self.view.show_error("the filename cannot be empty")
-            return
-
-        try:
-            path = self.repository.save(filename)
-        except PIMError as exc:
-            self.view.show_error(str(exc))
-            return
-
-        self.view.show_success(f"Records saved to {path}.")
-
-    def load_records(self):
-        """Load records from a .pim file, replacing the current ones."""
-        filename = self.view.ask(
-            "Enter filename to load (e.g. records.pim, or 0 to go back): "
-        )
-
-        if filename == "0":
-            return
-
-        if not filename:
-            self.view.show_error("the filename cannot be empty")
-            return
-
-        # Loading replaces everything, so warn before losing unsaved changes.
-        if len(self.repository) > 0:
-            answer = self.view.ask(
-                f"Loading will replace the {len(self.repository)} record(s) "
-                f"currently in memory; unsaved changes will be lost. "
-                f"Continue? (y/n): "
-            )
-
-            if answer.casefold() != "y":
-                self.view.show("Load cancelled.")
+            if expression == "0":
                 return
 
-        try:
-            self.repository.load(filename)
-        except FileNotFoundError:
-            self.view.show_error(f"file not found: {with_extension(filename)}")
-            return
-        except PIMError as exc:
-            self.view.show_error(str(exc))
+            try:
+                criterion = parse_criterion(expression)
+            except ValidationError as exc:
+                # Keep the user at the prompt so the typo can be corrected.
+                self.view.show_error(str(exc))
+                continue
+
+            self.view.show("\nCriterion:")
+            self.view.show(criterion.describe())
+            self.view.show_records(self.repository.search(criterion))
+
+    def save_records(self):
+        """Ask for a filename until the records are saved, or 0 to go back."""
+        while True:
+            filename = self.view.ask(
+                "Enter filename to save (e.g. records.pim, or 0 to go back): "
+            )
+
+            if filename == "0":
+                return
+
+            if not filename:
+                self.view.show_error("the filename cannot be empty")
+                continue
+
+            try:
+                path = self.repository.save(filename)
+            except PIMError as exc:
+                self.view.show_error(str(exc))
+                continue
+
+            self.view.show_success(f"Records saved to {path}.")
             return
 
-        self.view.show_success(f"Records loaded from {with_extension(filename)}.")
+    def load_records(self):
+        """Ask for a filename until records are loaded, or 0 to go back."""
+        while True:
+            filename = self.view.ask(
+                "Enter filename to load (e.g. records.pim, or 0 to go back): "
+            )
+
+            if filename == "0":
+                return
+
+            if not filename:
+                self.view.show_error("the filename cannot be empty")
+                continue
+
+            # Resolve the name before asking to replace anything, so a wrong
+            # extension is reported instead of the user confirming and then
+            # failing.
+            try:
+                path = with_extension(filename)
+            except PIMError as exc:
+                self.view.show_error(str(exc))
+                continue
+
+            # Loading replaces everything, so warn before losing unsaved changes.
+            if len(self.repository) > 0:
+                answer = self.view.ask(
+                    f"Loading will replace the {len(self.repository)} record(s) "
+                    f"currently in memory; unsaved changes will be lost. "
+                    f"Continue? (y/n): "
+                )
+
+                if answer.casefold() != "y":
+                    self.view.show("Load cancelled.")
+                    continue
+
+            try:
+                self.repository.load(path)
+            except FileNotFoundError:
+                self.view.show_error(f"file not found: {path}")
+                continue
+            except PIMError as exc:
+                self.view.show_error(str(exc))
+                continue
+
+            self.view.show_success(f"Records loaded from {path}.")
+            return
 
     def _pick(self, title, options):
         """Ask the user to choose one option. Returns None if they back out."""
